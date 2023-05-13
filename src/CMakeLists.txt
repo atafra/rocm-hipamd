@@ -56,6 +56,34 @@ option(DISABLE_DIRECT_DISPATCH "Disable Direct Dispatch" OFF)
 option(BUILD_SHARED_LIBS "Build the shared library" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+
+if(WIN32)
+
+  # We don't need to build amdhip64 because it ships with the driver
+  # Instead, we just generate the import library from the included .def file
+  # However, we skip hiprtc because we cannot build it without ROCclr
+  set(AMDHIP64_IMPLIB ${CMAKE_BINARY_DIR}/lib/amdhip64.lib)
+
+  add_custom_command(
+    OUTPUT ${AMDHIP64_IMPLIB}
+    COMMAND lib.exe /def:${CMAKE_CURRENT_SOURCE_DIR}/amdhip.def /machine:x64 /name:amdhip64.dll /out:${AMDHIP64_IMPLIB}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/amdhip.def
+    COMMENT "Generating amdhip64.lib"
+    VERBATIM
+  )
+
+  add_custom_target(gen-amdhip64-lib ALL
+    DEPENDS ${AMDHIP64_IMPLIB}
+    VERBATIM
+  )
+
+  add_library(amdhip64 INTERFACE)
+  target_link_libraries(amdhip64 INTERFACE "\${_IMPORT_PREFIX}/lib/amdhip64.lib")
+
+  install(FILES ${AMDHIP64_IMPLIB} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+else()
+
 find_package(ROCclr)
 
 if(BUILD_SHARED_LIBS)
@@ -207,6 +235,8 @@ if(NOT WIN32)
   endif()
 endif()
 
+endif() # NOT WIN32
+
 #############################
 # Profiling API support
 #############################
@@ -264,10 +294,12 @@ Please install it using the following command: \"pip3 install CppHeaderParser\".
   add_dependencies(amdhip64 gen-prof-api-str-header)
 endif()
 
-add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
-  ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/.hipInfo ${PROJECT_BINARY_DIR}/lib/.hipInfo)
-add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
-  ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
+add_custom_target(copy-hipinfo-headers ALL
+  COMMAND
+    ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/.hipInfo ${PROJECT_BINARY_DIR}/lib/.hipInfo
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include
+)
 
 add_library(host INTERFACE)
 target_link_libraries(host INTERFACE amdhip64)
